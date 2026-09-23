@@ -6,8 +6,8 @@ import logging
 import os
 
 import edge_tts
-from deep_translator import GoogleTranslator, MyMemoryTranslator
 from flask import Flask, jsonify, request, send_file
+import requests
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
@@ -26,17 +26,10 @@ LANGUAGE_VOICES = {
     "ur": "ur-IN-GulNeural",
 }
 
-MYMEMORY_TARGETS = {
-    "en": "english us",
-    "hi": "hindi",
-    "ta": "tamil india",
-    "te": "telugu",
-    "kn": "kannada",
-    "ml": "malayalam",
-    "bn": "bengali",
-    "mr": "marathi",
-    "gu": "gujarati",
-    "ur": "urdu",
+SARVAM_TARGETS = {
+    "hi": "hi-IN",
+    "ta": "ta-IN",
+    "te": "te-IN",
 }
 
 
@@ -50,22 +43,36 @@ async def synthesize(text: str, voice: str) -> bytes:
 
 
 def translate_text(text: str, language: str) -> str:
-    """Translate English input, trying MyMemory before Google's fallback."""
-    errors = []
-    translator_factories = (
-        ("MyMemory", lambda: MyMemoryTranslator(source="english us", target=MYMEMORY_TARGETS[language])),
-        ("Google", lambda: GoogleTranslator(source="en", target=language)),
+    """Translate English input with Sarvam; English output needs no translation."""
+    if language == "en":
+        return text
+
+    api_key = os.environ.get("SARVAM_API_KEY")
+    if not api_key:
+        raise RuntimeError("SARVAM_API_KEY is not configured")
+
+    response = requests.post(
+        "https://api.sarvam.ai/translate",
+        headers={
+            "api-subscription-key": api_key,
+            "Content-Type": "application/json",
+        },
+        json={
+            "input": text,
+            "source_language_code": "en-IN",
+            "target_language_code": SARVAM_TARGETS[language],
+            "model": "mayura:v1",
+            "mode": "modern-colloquial",
+        },
+        timeout=20,
     )
-    for provider, make_translator in translator_factories:
-        try:
-            translated = make_translator().translate(text)
-            if translated:
-                return translated
-        except Exception as error:
-            errors.append(error)
-            app.logger.warning("%s translation provider failed: %s", provider, error)
-    cause = errors[-1] if errors else None
-    raise RuntimeError("All translation providers failed") from cause
+    if not response.ok:
+        app.logger.error("Sarvam translation returned HTTP %s: %s", response.status_code, response.text[:500])
+        response.raise_for_status()
+    translated = response.json().get("translated_text")
+    if not isinstance(translated, str) or not translated.strip():
+        raise RuntimeError("Sarvam returned an empty translation")
+    return translated.strip()
 
 
 @app.get("/")
@@ -92,6 +99,10 @@ def speak():
     voice = LANGUAGE_VOICES.get(language)
     if voice is None:
         return jsonify({"error": f"Unsupported language: {language}"}), 400
+    if language not in ("en", *SARVAM_TARGETS):
+        return jsonify({"error": f"Translation is not configured for: {language}"}), 400
+    if language != "en" and not os.environ.get("SARVAM_API_KEY"):
+        return jsonify({"error": "Translation is not configured. Add SARVAM_API_KEY in the Render service environment."}), 503
 
     try:
         translated = translate_text(text.strip(), language)
@@ -108,7 +119,7 @@ def speak():
         )
     except Exception:
         app.logger.exception("Speech request failed")
-        return jsonify({"error": "Translation or speech generation failed."}), 502
+        return jsonify({"error": "Translation or speech generation failed. Check the service logs for details."}), 502
 
 
 if __name__ == "__main__":

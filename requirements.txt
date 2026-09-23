@@ -1,4 +1,4 @@
 flask
-deep-translator
+requests
 edge-tts
 gunicorn
