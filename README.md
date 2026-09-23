@@ -46,4 +46,4 @@ Render supplies the `PORT` environment variable; Gunicorn binds to it automatica
 
 Set the sketch URL to `https://YOUR-SERVICE.onrender.com/speak`. The request must be HTTPS, use `Content-Type: application/json`, and send the `text` and `lang` fields. The response is raw MP3 audio bytes. The sketch must read the HTTP response body as binary and pass those bytes to its audio playback component. Use proper certificate validation where possible; `setInsecure()` disables server certificate verification.
 
-This service calls Google Translate through `deep-translator` and Edge TTS over the network, so both providers must be reachable from the deployed instance. Neither provider is an official stable API through these Python packages.
+This service tries MyMemory first for translation and falls back to Google Translate through `deep-translator`; it then calls Edge TTS. Both translation providers and Edge TTS must be reachable from the deployed instance. These library integrations are unofficial and can be rate-limited or changed by their providers.

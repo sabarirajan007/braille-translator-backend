@@ -6,7 +6,7 @@ import logging
 import os
 
 import edge_tts
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator
 from flask import Flask, jsonify, request, send_file
 
 app = Flask(__name__)
@@ -36,6 +36,23 @@ async def synthesize(text: str, voice: str) -> bytes:
     return audio.getvalue()
 
 
+def translate_text(text: str, language: str) -> str:
+    """Try MyMemory first, then Google's unofficial endpoint as a fallback."""
+    errors = []
+    for translator in (
+        MyMemoryTranslator(source="auto", target=language),
+        GoogleTranslator(source="auto", target=language),
+    ):
+        try:
+            translated = translator.translate(text)
+            if translated:
+                return translated
+        except Exception as error:
+            errors.append(error)
+    cause = errors[-1] if errors else None
+    raise RuntimeError("All translation providers failed") from cause
+
+
 @app.get("/")
 def health():
     return jsonify({"status": "ok", "service": "braille-translator-speech"})
@@ -62,7 +79,7 @@ def speak():
         return jsonify({"error": f"Unsupported language: {language}"}), 400
 
     try:
-        translated = GoogleTranslator(source="auto", target=language).translate(text.strip())
+        translated = translate_text(text.strip(), language)
         if not translated:
             return jsonify({"error": "Translation returned no text."}), 502
         audio_bytes = asyncio.run(synthesize(translated, voice))
