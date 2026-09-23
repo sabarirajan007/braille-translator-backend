@@ -26,6 +26,19 @@ LANGUAGE_VOICES = {
     "ur": "ur-IN-GulNeural",
 }
 
+MYMEMORY_TARGETS = {
+    "en": "english us",
+    "hi": "hindi",
+    "ta": "tamil india",
+    "te": "telugu",
+    "kn": "kannada",
+    "ml": "malayalam",
+    "bn": "bengali",
+    "mr": "marathi",
+    "gu": "gujarati",
+    "ur": "urdu",
+}
+
 
 async def synthesize(text: str, voice: str) -> bytes:
     audio = io.BytesIO()
@@ -39,12 +52,13 @@ async def synthesize(text: str, voice: str) -> bytes:
 def translate_text(text: str, language: str) -> str:
     """Try MyMemory first, then Google's unofficial endpoint as a fallback."""
     errors = []
-    for translator in (
-        MyMemoryTranslator(source="auto", target=language),
-        GoogleTranslator(source="auto", target=language),
-    ):
+    translator_factories = (
+        lambda: MyMemoryTranslator(source="auto", target=MYMEMORY_TARGETS[language]),
+        lambda: GoogleTranslator(source="auto", target=language),
+    )
+    for make_translator in translator_factories:
         try:
-            translated = translator.translate(text)
+            translated = make_translator().translate(text)
             if translated:
                 return translated
         except Exception as error:
