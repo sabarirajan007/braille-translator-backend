@@ -1,6 +1,6 @@
 # Braille translator speech backend
 
-Flask service that translates text to the requested language and returns an MP3 from Microsoft Edge text-to-speech.
+Flask service that translates English text to the requested language and returns an MP3 from Microsoft Edge text-to-speech.
 
 ## Run locally
 
@@ -46,4 +46,4 @@ Render supplies the `PORT` environment variable; Gunicorn binds to it automatica
 
 Set the sketch URL to `https://YOUR-SERVICE.onrender.com/speak`. The request must be HTTPS, use `Content-Type: application/json`, and send the `text` and `lang` fields. The response is raw MP3 audio bytes. The sketch must read the HTTP response body as binary and pass those bytes to its audio playback component. Use proper certificate validation where possible; `setInsecure()` disables server certificate verification.
 
-This service tries MyMemory first for translation and falls back to Google Translate through `deep-translator`; it then calls Edge TTS. Both translation providers and Edge TTS must be reachable from the deployed instance. These library integrations are unofficial and can be rate-limited or changed by their providers.
+This service assumes incoming text is English. It tries MyMemory first for translation and falls back to Google Translate through `deep-translator`; it then calls Edge TTS. Both translation providers and Edge TTS must be reachable from the deployed instance. These library integrations are unofficial and can be rate-limited or changed by their providers.

@@ -50,19 +50,20 @@ async def synthesize(text: str, voice: str) -> bytes:
 
 
 def translate_text(text: str, language: str) -> str:
-    """Try MyMemory first, then Google's unofficial endpoint as a fallback."""
+    """Translate English input, trying MyMemory before Google's fallback."""
     errors = []
     translator_factories = (
-        lambda: MyMemoryTranslator(source="auto", target=MYMEMORY_TARGETS[language]),
-        lambda: GoogleTranslator(source="auto", target=language),
+        ("MyMemory", lambda: MyMemoryTranslator(source="english us", target=MYMEMORY_TARGETS[language])),
+        ("Google", lambda: GoogleTranslator(source="en", target=language)),
     )
-    for make_translator in translator_factories:
+    for provider, make_translator in translator_factories:
         try:
             translated = make_translator().translate(text)
             if translated:
                 return translated
         except Exception as error:
             errors.append(error)
+            app.logger.warning("%s translation provider failed: %s", provider, error)
     cause = errors[-1] if errors else None
     raise RuntimeError("All translation providers failed") from cause
 
