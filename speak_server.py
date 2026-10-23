@@ -1,11 +1,9 @@
 """HTTP speech endpoint for the Braille translator project."""
 
-import asyncio
 import io
 import logging
 import os
 
-import edge_tts
 from flask import Flask, jsonify, request, send_file
 import requests
 
@@ -13,37 +11,51 @@ app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
 
-LANGUAGE_VOICES = {
-    "en": "en-US-AriaNeural",
-    "hi": "hi-IN-SwaraNeural",
-    "ta": "ta-IN-PallaviNeural",
-    "te": "te-IN-ShrutiNeural",
-    "kn": "kn-IN-SapnaNeural",
-    "ml": "ml-IN-SobhanaNeural",
-    "bn": "bn-IN-TanishaaNeural",
-    "mr": "mr-IN-AarohiNeural",
-    "gu": "gu-IN-DhwaniNeural",
-    "ur": "ur-IN-GulNeural",
-}
-
 SARVAM_TARGETS = {
     "hi": "hi-IN",
     "ta": "ta-IN",
     "te": "te-IN",
 }
 
+SARVAM_TTS_LANGUAGES = {
+    "en": "en-IN",
+    "hi": "hi-IN",
+    "ta": "ta-IN",
+    "te": "te-IN",
+}
 
-async def synthesize(text: str, voice: str) -> bytes:
-    audio = io.BytesIO()
-    communicate = edge_tts.Communicate(text, voice)
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            audio.write(chunk["data"])
-    return audio.getvalue()
+
+def synthesize(text: str, language: str) -> bytes:
+    """Generate MP3 audio through Sarvam's streaming text-to-speech API."""
+    api_key = os.environ.get("SARVAM_API_KEY")
+    if not api_key:
+        raise RuntimeError("SARVAM_API_KEY is not configured")
+
+    with requests.post(
+        "https://api.sarvam.ai/text-to-speech/stream",
+        headers={"api-subscription-key": api_key},
+        json={
+            "text": text,
+            "model": "bulbul:v3",
+            "language_code": SARVAM_TTS_LANGUAGES[language],
+            "output_audio_codec": "mp3",
+            "speech_sample_rate": 22050,
+        },
+        stream=True,
+        timeout=(10, 60),
+    ) as response:
+        if not response.ok:
+            app.logger.error(
+                "Sarvam speech returned HTTP %s: %s",
+                response.status_code,
+                response.text[:500],
+            )
+            response.raise_for_status()
+        return b"".join(response.iter_content(chunk_size=8192))
 
 
 def translate_text(text: str, language: str) -> str:
-    """Translate English input with Sarvam; English output needs no translation."""
+    """Translate English text with Sarvam; English output needs no translation."""
     if language == "en":
         return text
 
@@ -96,19 +108,16 @@ def speak():
         return jsonify({"error": "lang must be a language code such as ta or en."}), 400
 
     language = language.strip().lower().split("-")[0]
-    voice = LANGUAGE_VOICES.get(language)
-    if voice is None:
+    if language not in SARVAM_TTS_LANGUAGES:
         return jsonify({"error": f"Unsupported language: {language}"}), 400
-    if language not in ("en", *SARVAM_TARGETS):
-        return jsonify({"error": f"Translation is not configured for: {language}"}), 400
-    if language != "en" and not os.environ.get("SARVAM_API_KEY"):
-        return jsonify({"error": "Translation is not configured. Add SARVAM_API_KEY in the Render service environment."}), 503
+    if not os.environ.get("SARVAM_API_KEY"):
+        return jsonify({"error": "Speech is not configured. Add SARVAM_API_KEY in the Render service environment."}), 503
 
     try:
         translated = translate_text(text.strip(), language)
         if not translated:
             return jsonify({"error": "Translation returned no text."}), 502
-        audio_bytes = asyncio.run(synthesize(translated, voice))
+        audio_bytes = synthesize(translated, language)
         if not audio_bytes:
             return jsonify({"error": "Speech service returned no audio."}), 502
         return send_file(
